@@ -14,3 +14,4 @@ sdkconfig.old
 managed_components/
 dependencies.lock
 
+.rake_tasks~
