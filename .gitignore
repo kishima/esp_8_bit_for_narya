@@ -1,0 +1,16 @@
+tmp/
+CLAUDE.md
+.claude/
+*.nes
+
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+.serial_port
+.env
+
+# Managed components / compile cache
+managed_components/
+dependencies.lock
+
