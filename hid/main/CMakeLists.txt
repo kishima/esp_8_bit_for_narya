@@ -2,9 +2,11 @@ idf_component_register(
     SRCS
         "main.c"
         "usb/usb_gamepad.c"
+        "transport/hid_uart.c"
     INCLUDE_DIRS
         "include"
         "usb"
+        "transport"
     REQUIRES
         driver
         esp_timer

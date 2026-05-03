@@ -8,6 +8,7 @@ idf_component_register(
         "audio/audio_i2s.cpp"
         "emu/emu.cpp"
         "emu/emu_nofrendo.cpp"
+        "transport/hid_uart.c"
         ${NOFRENDO_SRCS}
     INCLUDE_DIRS
         "include"
@@ -15,6 +16,7 @@ idf_component_register(
         "audio"
         "emu"
         "emu/nofrendo"
+        "transport"
     REQUIRES
         driver
         esp_driver_i2s

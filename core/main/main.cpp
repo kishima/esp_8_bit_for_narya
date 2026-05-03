@@ -25,6 +25,7 @@
 #include "video_out.h"
 #include "audio_i2s.h"
 #include "emu/emu.h"
+#include "transport/hid_uart.h"
 
 static const char *TAG = "narya_core";
 
@@ -88,6 +89,31 @@ static void perf_task(void *arg)
     }
 }
 
+// P6: drain the UART RX queue and log decoded events. Wiring into the
+// emulator's event_btn() comes in P7.
+static void hid_rx_task(void *arg)
+{
+    (void)arg;
+    narya_hid_msg_t msg;
+    while (true) {
+        if (hid_uart_rx_recv(&msg, portMAX_DELAY) != pdTRUE) continue;
+        switch (msg.type) {
+        case NARYA_EVT_BTN_DOWN:
+            ESP_LOGI(TAG, "hid_evt: btn=%u DOWN seq=%u", msg.payload[0], msg.seq);
+            break;
+        case NARYA_EVT_BTN_UP:
+            ESP_LOGI(TAG, "hid_evt: btn=%u UP seq=%u", msg.payload[0], msg.seq);
+            break;
+        case NARYA_EVT_HEARTBEAT:
+            ESP_LOGI(TAG, "hid_link_alive seq=%u", msg.seq);
+            break;
+        default:
+            ESP_LOGD(TAG, "hid_evt: type=0x%02X len=%u seq=%u", msg.type, msg.len, msg.seq);
+            break;
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "narya_core boot on core %d", xPortGetCoreID());
@@ -123,6 +149,11 @@ extern "C" void app_main(void)
     video_init(g_emu->cc_width, EMU_NES, g_emu->composite_palette(), /*ntsc=*/1);
     ESP_LOGI(TAG, "[video] init ok ntsc=1 samples_per_cc=%d", g_emu->cc_width);
 
-    xTaskCreatePinnedToCore(emu_task,  "emu_task",  6 * 1024, g_emu, 4, nullptr, 0);
-    xTaskCreatePinnedToCore(perf_task, "perf_task", 3 * 1024, nullptr, 2, nullptr, 1);
+    if (hid_uart_rx_init() != ESP_OK) {
+        ESP_LOGW(TAG, "hid_uart_rx_init failed; continuing without HID input");
+    }
+
+    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu,   4, nullptr, 0);
+    xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, nullptr, 5, nullptr, 1);
 }

@@ -13,6 +13,11 @@
 #define NARYA_HID_USB_DP            GPIO_NUM_20
 #define NARYA_HID_USB_VBUS_EN       GPIO_NUM_1
 
+// Open-drain reset line into the core MCU's EN pin. External pull-up keeps
+// the line HIGH so the core normally runs; we drive LOW briefly to assert
+// reset, then go high-impedance (gpio set 1 on open-drain) to release.
+#define NARYA_HID_CORE_RESET        GPIO_NUM_5
+
 // HID UART link to ESP32-WROVER (this side: TX-only logically; RX kept for ack/debug).
 #define NARYA_HID_UART_PORT         UART_NUM_1
 #define NARYA_HID_UART_TX           GPIO_NUM_11
