@@ -15,8 +15,11 @@
 extern "C" {
 #endif
 
-#define NARYA_AUDIO_SAMPLE_RATE_HZ   15720    // matches NTSC scanline rate
-#define NARYA_AUDIO_MAX_MONO_SAMPLES 300      // ~262 + headroom for one NTSC frame
+// Anemoia produces audio at 44100 Hz in 128-frame stereo blocks. Match
+// that on the I2S side; the driver will reclock as needed for whatever
+// downstream DAC is wired to BCK/WS/DOUT.
+#define NARYA_AUDIO_SAMPLE_RATE_HZ   44100
+#define NARYA_AUDIO_MAX_MONO_SAMPLES 768      // covers 44100/60 = 735 frames + slack
 
 // Bring up I2S1 with the Narya pin assignment. Returns ESP_OK on success.
 // Must be called before audio_i2s_write_mono. Idempotent.

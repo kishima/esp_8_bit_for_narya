@@ -1,5 +1,6 @@
-# Glob nofrendo .c sources (mappers + core).
-file(GLOB NOFRENDO_SRCS "emu/nofrendo/*.c")
+# Glob Anemoia .cpp sources (core + mappers).
+file(GLOB ANEMOIA_CORE_SRCS    "emu/anemoia/*.cpp")
+file(GLOB ANEMOIA_MAPPER_SRCS  "emu/anemoia/mappers/*.cpp")
 
 idf_component_register(
     SRCS
@@ -7,17 +8,18 @@ idf_component_register(
         "video/video_out.cpp"
         "audio/audio_i2s.cpp"
         "emu/emu.cpp"
-        "emu/emu_nofrendo.cpp"
+        "emu/emu_anemoia.cpp"
         "menu/rom_menu.cpp"
         "rom_store/rom_store.c"
         "transport/hid_uart.c"
-        ${NOFRENDO_SRCS}
+        ${ANEMOIA_CORE_SRCS}
+        ${ANEMOIA_MAPPER_SRCS}
     INCLUDE_DIRS
         "include"
         "video"
         "audio"
         "emu"
-        "emu/nofrendo"
+        "emu/anemoia"
         "menu"
         "rom_store"
         "transport"
@@ -30,16 +32,32 @@ idf_component_register(
         spi_flash
 )
 
-# nofrendo upstream is older C and trips several modern GCC -Werror=* flags.
-# Soften them to warnings without disabling the underlying checks; expose
-# strdup() via _GNU_SOURCE for the few sources that use it.
+# Anemoia upstream is plain modern C++ but uses a few patterns that trip
+# stricter ESP-IDF defaults. Soften only the warnings that fire, leave
+# real diagnostics intact.
 target_compile_options(${COMPONENT_LIB} PRIVATE
-    -Wno-error=char-subscripts
-    -Wno-error=misleading-indentation
-    -Wno-error=maybe-uninitialized
-    -Wno-error=implicit-function-declaration
     -Wno-error=unused-but-set-variable
     -Wno-error=unused-variable
     -Wno-error=unused-function
+    -Wno-error=missing-field-initializers
+    -Wno-error=uninitialized
+    -Wno-error=maybe-uninitialized
+    -Wno-error=sequence-point
 )
-target_compile_definitions(${COMPONENT_LIB} PRIVATE _GNU_SOURCE)
+
+# Anemoia's CPU/PPU/APU interpreters expect aggressive optimisation
+# (-Ofast + jump-table dispatch + loop unrolling) to hit real-time speed
+# on the ESP32; the upstream ino has a #error guard for this. Apply the
+# subset of flags that work with ESP-IDF's compile pipeline. Skip -flto
+# (link-time, needs broader sdkconfig changes) and -mlongcalls (already
+# part of the ESP-IDF default toolchain).
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -Ofast
+    -funroll-loops
+    -fjump-tables
+    -ftree-switch-conversion
+    -fno-tree-vectorize
+    -frename-registers
+    -fno-plt
+)
+target_compile_definitions(${COMPONENT_LIB} PRIVATE OPTIMIZATION_FLAGS=1)

@@ -42,11 +42,28 @@ static void emu_task(void *arg)
     Emu *emu = (Emu*)arg;
     static int16_t audio_block[NARYA_AUDIO_BUF_SAMPLES];
 
+    // NTSC frame budget; matches Anemoia's 60.098 fps target.
+    const int64_t FRAME_US = 16639;
+    int64_t next_frame_us = esp_timer_get_time();
+
     while (true) {
         emu->update();                              // run one NES frame
         _lines = emu->video_buffer();               // hand frame to video_isr
         int n = emu->audio_buffer(audio_block, NARYA_AUDIO_BUF_SAMPLES);
-        if (n > 0) audio_i2s_write_mono(audio_block, n);   // blocks on DMA queue -> paces loop
+        if (n > 0) audio_i2s_write_mono(audio_block, n);
+
+        // Frame pace. With Anemoia, audio runs in apu_task on the side
+        // and audio_buffer() returns 0 here, so this loop has no I2S
+        // back-pressure of its own and would otherwise spin core 0.
+        next_frame_us += FRAME_US;
+        int64_t now = esp_timer_get_time();
+        int64_t sleep_us = next_frame_us - now;
+        if (sleep_us > 1000) {
+            vTaskDelay(pdMS_TO_TICKS(sleep_us / 1000));
+        } else if (sleep_us < -2 * FRAME_US) {
+            // Fell behind by more than a frame; resync rather than chase.
+            next_frame_us = now;
+        }
     }
 }
 
