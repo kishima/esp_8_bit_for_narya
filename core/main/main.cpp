@@ -27,6 +27,10 @@
 #include "emu/emu.h"
 #include "transport/hid_uart.h"
 
+// C entry-point exposed by emu_nofrendo.cpp for injecting decoded button
+// events from the UART HID link into the emulator's event_btn() handler.
+extern "C" void nofrendo_event_btn(void *emu, int btn_idx, int pressed);
+
 static const char *TAG = "narya_core";
 
 #define NARYA_LITTLEFS_BASE        "/storage"
@@ -89,20 +93,24 @@ static void perf_task(void *arg)
     }
 }
 
-// P6: drain the UART RX queue and log decoded events. Wiring into the
-// emulator's event_btn() comes in P7.
+// Drain the UART RX queue, log each decoded event, and forward button edges
+// to the emulator. The emulator only consumes the first 8 button indices
+// (0..3 = D-pad, 4 = Start, 5 = Select, 6 = A, 7 = B); see narya port
+// notes in emu_nofrendo.cpp::EmuNofrendo::event_btn.
 static void hid_rx_task(void *arg)
 {
-    (void)arg;
+    Emu *emu = (Emu*)arg;
     narya_hid_msg_t msg;
     while (true) {
         if (hid_uart_rx_recv(&msg, portMAX_DELAY) != pdTRUE) continue;
         switch (msg.type) {
         case NARYA_EVT_BTN_DOWN:
             ESP_LOGI(TAG, "hid_evt: btn=%u DOWN seq=%u", msg.payload[0], msg.seq);
+            if (emu) nofrendo_event_btn(emu, msg.payload[0], 1);
             break;
         case NARYA_EVT_BTN_UP:
             ESP_LOGI(TAG, "hid_evt: btn=%u UP seq=%u", msg.payload[0], msg.seq);
+            if (emu) nofrendo_event_btn(emu, msg.payload[0], 0);
             break;
         case NARYA_EVT_HEARTBEAT:
             ESP_LOGI(TAG, "hid_link_alive seq=%u", msg.seq);
@@ -153,7 +161,7 @@ extern "C" void app_main(void)
         ESP_LOGW(TAG, "hid_uart_rx_init failed; continuing without HID input");
     }
 
-    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu,   4, nullptr, 0);
+    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 0);
     xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
-    xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, nullptr, 5, nullptr, 1);
+    xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, g_emu, 5, nullptr, 1);
 }
