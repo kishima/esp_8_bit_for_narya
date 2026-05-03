@@ -1,8 +1,10 @@
 idf_component_register(
     SRCS
         "main.cpp"
+        "video/video_out.cpp"
     INCLUDE_DIRS
         "include"
+        "video"
     REQUIRES
         driver
         esp_timer
