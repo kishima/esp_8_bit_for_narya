@@ -8,6 +8,7 @@ idf_component_register(
         "audio/audio_i2s.cpp"
         "emu/emu.cpp"
         "emu/emu_nofrendo.cpp"
+        "menu/rom_menu.cpp"
         "transport/hid_uart.c"
         ${NOFRENDO_SRCS}
     INCLUDE_DIRS
@@ -16,6 +17,7 @@ idf_component_register(
         "audio"
         "emu"
         "emu/nofrendo"
+        "menu"
         "transport"
     REQUIRES
         driver

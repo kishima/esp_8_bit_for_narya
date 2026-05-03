@@ -25,6 +25,7 @@
 #include "video_out.h"
 #include "audio_i2s.h"
 #include "emu/emu.h"
+#include "menu/rom_menu.h"
 #include "transport/hid_uart.h"
 
 // C entry-point exposed by emu_nofrendo.cpp for injecting decoded button
@@ -35,7 +36,6 @@ static const char *TAG = "narya_core";
 
 #define NARYA_LITTLEFS_BASE        "/storage"
 #define NARYA_LITTLEFS_PARTITION   "storage"
-#define NARYA_DEFAULT_ROM_PATH     "/storage/nestest.nes"
 #define NARYA_AUDIO_BUF_SAMPLES    NARYA_AUDIO_MAX_MONO_SAMPLES
 
 static Emu *g_emu = nullptr;
@@ -148,18 +148,31 @@ extern "C" void app_main(void)
         return;
     }
 
-    if (g_emu->insert(NARYA_DEFAULT_ROM_PATH, 1, 0) != 0) {
-        ESP_LOGE(TAG, "halt: insert %s failed", NARYA_DEFAULT_ROM_PATH);
-        return;
-    }
-    ESP_LOGI(TAG, "[emu] rom=%s loaded", NARYA_DEFAULT_ROM_PATH);
-
+    // Initialize the video chain BEFORE the menu so the menu can render.
+    // We pass the emulator's NES palette since blit() will index into it
+    // both for the menu and (later) for emulator frames.
     video_init(g_emu->cc_width, EMU_NES, g_emu->composite_palette(), /*ntsc=*/1);
     ESP_LOGI(TAG, "[video] init ok ntsc=1 samples_per_cc=%d", g_emu->cc_width);
 
+    // The HID RX worker fills its queue independent of any consumer; bring
+    // it up so the menu can drain events directly.
     if (hid_uart_rx_init() != ESP_OK) {
-        ESP_LOGW(TAG, "hid_uart_rx_init failed; continuing without HID input");
+        ESP_LOGE(TAG, "halt: hid_uart_rx_init failed");
+        return;
     }
+
+    char rom_path[96];
+    if (rom_menu_run(NARYA_LITTLEFS_BASE, rom_path, sizeof(rom_path),
+                     /*default_timeout_ms=*/0) != ESP_OK) {
+        ESP_LOGE(TAG, "halt: rom_menu_run failed");
+        return;
+    }
+
+    if (g_emu->insert(rom_path, 1, 0) != 0) {
+        ESP_LOGE(TAG, "halt: insert %s failed", rom_path);
+        return;
+    }
+    ESP_LOGI(TAG, "[emu] rom=%s loaded", rom_path);
 
     xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 0);
     xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
