@@ -1,10 +1,14 @@
 idf_component_register(
     SRCS
         "main.c"
+        "usb/usb_gamepad.c"
     INCLUDE_DIRS
         "include"
+        "usb"
     REQUIRES
         driver
         esp_timer
         freertos
+        usb
+        espressif__usb_host_hid
 )
