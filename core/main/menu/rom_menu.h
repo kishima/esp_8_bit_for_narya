@@ -14,21 +14,13 @@
 extern "C" {
 #endif
 
-// Block on the menu UI until the user selects a ROM (A button) or until
+// Block on the menu UI until the user selects a ROM (A or Start) or until
 // `default_timeout_ms` elapses with no input (in which case the first ROM
-// is auto-selected). Returns ESP_OK on success and writes the chosen path
-// (NUL-terminated) into `out_path`. Pass 0 for `default_timeout_ms` to
-// wait forever.
-//
-// `mount_dir`   : LittleFS base path, e.g. "/storage"
-// `out_path`    : caller-supplied buffer for the selected ROM full path
-// `out_cap`     : capacity of `out_path` including NUL
-//
-// Once this function returns, the caller is expected to construct the
-// emulator and call insert(out_path); the menu's framebuffer becomes
-// stale and will be replaced when emu_task starts driving _lines.
-esp_err_t rom_menu_run(const char *mount_dir,
-                       char *out_path, size_t out_cap,
+// is auto-selected). On success writes the chosen ROM name (basename only,
+// NUL-terminated) into `out_path`. Pass 0 for `default_timeout_ms` to
+// wait forever. ROM enumeration comes from rom_store, so rom_store_init()
+// must have already succeeded before calling this.
+esp_err_t rom_menu_run(char *out_path, size_t out_cap,
                        uint32_t default_timeout_ms);
 
 // Release the menu framebuffer + row-pointer array so the ~60 KB they

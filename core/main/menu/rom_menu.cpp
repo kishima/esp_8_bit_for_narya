@@ -4,7 +4,6 @@
 #include "rom_menu.h"
 
 #include <algorithm>
-#include <dirent.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -19,6 +18,7 @@
 #include "video_out.h"
 #include "hid_uart.h"
 #include "hid_uart_proto.h"
+#include "rom_store.h"
 #include "glcdfont.h"
 
 #define TAG "rom_menu"
@@ -90,23 +90,14 @@ static void draw_row_filled(int y_cell, uint8_t bg)
     }
 }
 
-static int scan_roms(const char *dir, std::vector<std::string> &out)
+static int scan_roms(std::vector<std::string> &out)
 {
-    DIR *d = opendir(dir);
-    if (!d) {
-        ESP_LOGE(TAG, "opendir(%s) failed", dir);
-        return -1;
+    int n = rom_store_count();
+    for (int i = 0; i < n && (int)out.size() < MAX_ROMS; ++i) {
+        rom_store_entry_t e;
+        if (rom_store_get(i, &e) != ESP_OK) continue;
+        out.emplace_back(e.name);
     }
-    struct dirent *de;
-    while ((de = readdir(d)) != nullptr) {
-        const char *name = de->d_name;
-        size_t n = strlen(name);
-        if (n < 5) continue;
-        if (strcasecmp(name + n - 4, ".nes") != 0) continue;
-        out.emplace_back(name);
-        if (out.size() >= MAX_ROMS) break;
-    }
-    closedir(d);
     std::sort(out.begin(), out.end());
     return (int)out.size();
 }
@@ -172,14 +163,13 @@ static void free_buffers(void)
     if (s_lines) { heap_caps_free(s_lines); s_lines = nullptr; }
 }
 
-esp_err_t rom_menu_run(const char *mount_dir,
-                       char *out_path, size_t out_cap,
+esp_err_t rom_menu_run(char *out_path, size_t out_cap,
                        uint32_t default_timeout_ms)
 {
-    if (!mount_dir || !out_path || out_cap < 2) return ESP_ERR_INVALID_ARG;
+    if (!out_path || out_cap < 2) return ESP_ERR_INVALID_ARG;
 
     std::vector<std::string> roms;
-    if (scan_roms(mount_dir, roms) < 0) return ESP_FAIL;
+    if (scan_roms(roms) < 0) return ESP_FAIL;
 
     esp_err_t err = alloc_buffers();
     if (err != ESP_OK) return err;
@@ -190,7 +180,7 @@ esp_err_t rom_menu_run(const char *mount_dir,
 
     if (roms.empty()) {
         // No ROMs -- we cannot proceed. Hold the screen so the user sees it.
-        ESP_LOGE(TAG, "no roms found under %s", mount_dir);
+        ESP_LOGE(TAG, "no roms found in 'roms' partition");
         while (true) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
@@ -231,12 +221,11 @@ esp_err_t rom_menu_run(const char *mount_dir,
         }
     }
 
-    int written = snprintf(out_path, out_cap, "%s/%s",
-                           mount_dir, roms[selected].c_str());
-    if (written < 0 || (size_t)written >= out_cap) {
+    if (roms[selected].size() + 1 > out_cap) {
         free_buffers();
         return ESP_ERR_INVALID_SIZE;
     }
+    strcpy(out_path, roms[selected].c_str());
     ESP_LOGI(TAG, "selected: %s", out_path);
     return ESP_OK;
 }

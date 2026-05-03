@@ -9,6 +9,7 @@ idf_component_register(
         "emu/emu.cpp"
         "emu/emu_nofrendo.cpp"
         "menu/rom_menu.cpp"
+        "rom_store/rom_store.c"
         "transport/hid_uart.c"
         ${NOFRENDO_SRCS}
     INCLUDE_DIRS
@@ -18,6 +19,7 @@ idf_component_register(
         "emu"
         "emu/nofrendo"
         "menu"
+        "rom_store"
         "transport"
     REQUIRES
         driver
@@ -25,7 +27,7 @@ idf_component_register(
         esp_partition
         esp_timer
         freertos
-        joltwallet__littlefs
+        spi_flash
 )
 
 # nofrendo upstream is older C and trips several modern GCC -Werror=* flags.

@@ -1,9 +1,8 @@
 ## IDF Component Manager Manifest
 ##
-## Pulls esp_littlefs into managed_components/ at first build so we can bake
-## NES ROMs into the LittleFS partition image without vendoring the whole
-## driver locally.
+## ROMs live in a raw 'roms' partition built at compile time and accessed
+## at runtime via esp_partition_mmap (flash XIP). No filesystem component
+## is needed.
 dependencies:
-  joltwallet/littlefs: "^1.10.0"
   idf:
     version: ">=5.0"

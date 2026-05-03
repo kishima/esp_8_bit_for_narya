@@ -1,14 +1,13 @@
 // narya_core - ESP32-WROVER core firmware top-level.
 //
-// Wiring at this stage (P4 first-light without external HID):
-//   - Mount LittleFS at /storage
-//   - Bring up the NTSC video pipeline (P2)
-//   - Bring up I2S1 audio (P3)
-//   - Construct the Nofrendo emulator and insert /storage/nestest.nes
-//   - emu_task (core 0):  one frame per iteration, hands _lines + audio
-//   - perf_task (core 1): 1 Hz status logger
-//
-// HID UART input (P6) and tighter video frame sync hooks come later.
+// Boot sequence:
+//   - Initialize the rom_store (parses the 'roms' partition directory).
+//   - Bring up NTSC video and I2S audio.
+//   - Show the ROM picker on the TV.
+//   - Construct the Nofrendo emulator and insert the chosen ROM.
+//   - emu_task (core 0):  one frame per iteration, hands _lines + audio.
+//   - perf_task (core 1): 1 Hz status logger.
+//   - hid_rx_task (core 1): forwards UART HID events into the emulator.
 
 #include <math.h>
 #include <stdio.h>
@@ -18,7 +17,6 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_littlefs.h"
 
 #include "narya_pin_assign.h"
 #include "hid_uart_proto.h"
@@ -26,6 +24,7 @@
 #include "audio_i2s.h"
 #include "emu/emu.h"
 #include "menu/rom_menu.h"
+#include "rom_store.h"
 #include "transport/hid_uart.h"
 
 // C entry-point exposed by emu_nofrendo.cpp for injecting decoded button
@@ -34,34 +33,9 @@ extern "C" void nofrendo_event_btn(void *emu, int btn_idx, int pressed);
 
 static const char *TAG = "narya_core";
 
-#define NARYA_LITTLEFS_BASE        "/storage"
-#define NARYA_LITTLEFS_PARTITION   "storage"
 #define NARYA_AUDIO_BUF_SAMPLES    NARYA_AUDIO_MAX_MONO_SAMPLES
 
 static Emu *g_emu = nullptr;
-
-static esp_err_t mount_littlefs(void)
-{
-    esp_vfs_littlefs_conf_t conf = {
-        .base_path              = NARYA_LITTLEFS_BASE,
-        .partition_label        = NARYA_LITTLEFS_PARTITION,
-        .partition              = nullptr,
-        .format_if_mount_failed = false,
-        .read_only              = true,
-        .dont_mount             = false,
-        .grow_on_mount          = false,
-    };
-    esp_err_t err = esp_vfs_littlefs_register(&conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "littlefs mount failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    size_t total = 0, used = 0;
-    if (esp_littlefs_info(NARYA_LITTLEFS_PARTITION, &total, &used) == ESP_OK) {
-        ESP_LOGI(TAG, "[littlefs] mounted total=%u used=%u", (unsigned)total, (unsigned)used);
-    }
-    return ESP_OK;
-}
 
 static void emu_task(void *arg)
 {
@@ -131,8 +105,8 @@ extern "C" void app_main(void)
              NARYA_CORE_HID_UART_RX, NARYA_CORE_HID_UART_TX, NARYA_CORE_HID_UART_BAUD);
     ESP_LOGI(TAG, "[proto] sof=0x%02X max_frame=%u", NARYA_HID_SOF, (unsigned)NARYA_HID_MAX_FRAME);
 
-    if (mount_littlefs() != ESP_OK) {
-        ESP_LOGE(TAG, "halt: littlefs mount failed");
+    if (rom_store_init() != ESP_OK) {
+        ESP_LOGE(TAG, "halt: rom_store_init failed");
         return;
     }
     if (audio_i2s_init() != ESP_OK) {
@@ -161,8 +135,8 @@ extern "C" void app_main(void)
         return;
     }
 
-    char rom_path[96];
-    if (rom_menu_run(NARYA_LITTLEFS_BASE, rom_path, sizeof(rom_path),
+    char rom_name[ROM_STORE_NAME_MAX];
+    if (rom_menu_run(rom_name, sizeof(rom_name),
                      /*default_timeout_ms=*/0) != ESP_OK) {
         ESP_LOGE(TAG, "halt: rom_menu_run failed");
         return;
@@ -174,11 +148,11 @@ extern "C" void app_main(void)
     // the PSRAM-resident ROM and visibly breaks MMC3 game timing.
     rom_menu_release();
 
-    if (g_emu->insert(rom_path, 1, 0) != 0) {
-        ESP_LOGE(TAG, "halt: insert %s failed", rom_path);
+    if (g_emu->insert(rom_name, 1, 0) != 0) {
+        ESP_LOGE(TAG, "halt: insert %s failed", rom_name);
         return;
     }
-    ESP_LOGI(TAG, "[emu] rom=%s loaded", rom_path);
+    ESP_LOGI(TAG, "[emu] rom=%s loaded", rom_name);
 
     xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 0);
     xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
