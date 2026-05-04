@@ -83,6 +83,10 @@ Cartridge::Cartridge(const char* filename)
 
 Cartridge::~Cartridge()
 {
+    if (chr_ram) {
+        free(chr_ram);
+        chr_ram = nullptr;
+    }
 }
 
 IRAM_ATTR bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
@@ -201,6 +205,37 @@ IRAM_ATTR void Cartridge::loadCHRBank(uint8_t* bank, uint16_t size, uint32_t off
     uint32_t pos = chr_base + offset;
     if (pos + size > rom_size) return;
     memcpy(bank, rom_data + pos, size);
+}
+
+IRAM_ATTR uint8_t* Cartridge::prgRomPtr(uint32_t offset)
+{
+    if (!rom_data) return nullptr;
+    uint32_t pos = prg_base + offset;
+    if (pos >= rom_size) return nullptr;
+    // Cast away const: callers (mappers) only read from it. The flash
+    // XIP region is read-only at the hardware level so accidental writes
+    // would fault; we accept that as a guardrail.
+    return const_cast<uint8_t*>(rom_data) + pos;
+}
+
+IRAM_ATTR uint8_t* Cartridge::chrRomPtr(uint32_t offset)
+{
+    if (number_CHR_banks == 0) {
+        // CHR-RAM cartridge: mappers write pattern data through this
+        // pointer, so we need a real RAM buffer. 8 KB covers the full
+        // pattern table address space ($0000-$1FFF). Lazily allocated
+        // so cartridges that do not need CHR-RAM pay nothing.
+        if (!chr_ram) {
+            chr_ram = (uint8_t*)malloc(8U * 1024U);
+            if (chr_ram) memset(chr_ram, 0, 8U * 1024U);
+        }
+        if (!chr_ram) return nullptr;
+        return chr_ram + (offset & 0x1FFF);
+    }
+    if (!rom_data) return nullptr;
+    uint32_t pos = chr_base + offset;
+    if (pos >= rom_size) return nullptr;
+    return const_cast<uint8_t*>(rom_data) + pos;
 }
 
 IRAM_ATTR void Cartridge::setMirrorMode(MIRROR mirror)
