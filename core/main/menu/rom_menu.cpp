@@ -119,7 +119,7 @@ static void redraw(const std::vector<std::string> &roms, int cursor)
     const int help_y1    = SAFE_BOT_ROW - 2;      // 25
     const int list_max   = help_y1 - list_top - 1;// gap of one row above help
 
-    draw_str(2, title_y,    "narya esp_8_bit", FG_COLOR, BG_COLOR);
+    draw_str(2, title_y,    "narya nes",      FG_COLOR, BG_COLOR);
     draw_str(2, subtitle_y, "select rom",      FG_COLOR, BG_COLOR);
 
     if (roms.empty()) {

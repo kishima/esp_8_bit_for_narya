@@ -1,8 +1,14 @@
-# esp_8_bit → Narya 2-MCU ボード移植 計画 (NES 専用)
+# esp_8_bit → Narya 2-MCU ボード移植 計画 (NES 専用) [歴史記録]
+
+> **Note**: This document is the original Nov 2024 planning doc kept
+> in-tree as a historical reference. The implementation has since
+> evolved (NES core swapped Nofrendo → Anemoia-ESP32, repo renamed to
+> `nes_for_narya`). For current architecture see [README.md](../README.md);
+> for design details around the Anemoia migration see git history.
 
 ## Context
 
-`/home/kishima/dev/esp_8_bit_for_narya/` は core/ と hid/ が空、Rakefile と tmp/ の参考実装のみ存在する未着手リポジトリ。CLAUDE.md に従い、ESP32-WROVER (core) + ESP32-S3 (hid) の 2-MCU 構成へ esp_8_bit を移植する。映像は NTSC コンポジット (内蔵 DAC GPIO25)、音声は I2S 出力 (fmruby-graphics-audio 流)、入力は S3 から UART 受信に置き換える。**NES (Nofrendo) のみを対象**とし、Atari/SMS のコードパスは取り込まない。実装方針は **Pure ESP-IDF v5.x 書き直し**、tmp/ からは **vendor (コピー) で取り込み**、ピンアサインは **Narya ボード仕様** に合わせる。
+`~/dev/nes_for_narya/` は core/ と hid/ が空、Rakefile と tmp/ の参考実装のみ存在する未着手リポジトリ。CLAUDE.md に従い、ESP32-WROVER (core) + ESP32-S3 (hid) の 2-MCU 構成へ esp_8_bit を移植する。映像は NTSC コンポジット (内蔵 DAC GPIO25)、音声は I2S 出力 (fmruby-graphics-audio 流)、入力は S3 から UART 受信に置き換える。**NES (Nofrendo) のみを対象**とし、Atari/SMS のコードパスは取り込まない。実装方針は **Pure ESP-IDF v5.x 書き直し**、tmp/ からは **vendor (コピー) で取り込み**、ピンアサインは **Narya ボード仕様** に合わせる。
 
 ## 確定事項
 

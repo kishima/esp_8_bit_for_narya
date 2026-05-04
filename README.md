@@ -1,10 +1,18 @@
-# esp_8_bit_for_narya
+# nes_for_narya
 
-A two-MCU port of [esp_8_bit](https://github.com/rossumur/esp_8_bit)
-(Peter Barrett) onto the **Narya** board: an ESP32-WROVER drives NTSC
-video and I2S audio while running the Nofrendo NES core; an ESP32-S3
-hosts a USB HID gamepad and forwards button events over UART. See
-[doc/porting_plan.md](doc/porting_plan.md) for the implementation plan.
+A two-MCU NES emulator for the **Narya** board: an ESP32-WROVER drives
+NTSC composite video and I2S audio while running the
+[Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32) NES core; an
+ESP32-S3 hosts a USB HID gamepad and forwards button events over UART.
+
+The project began as a Narya port of Peter Barrett's
+[`esp_8_bit`](https://github.com/rossumur/esp_8_bit) (the NTSC pipeline
+was lifted from there), then dropped Atari / SMS support and swapped
+the original Nofrendo NES core for Anemoia for higher per-mapper
+fidelity and full 44.1 kHz APU.
+
+See [doc/porting_plan.md](doc/porting_plan.md) for the early
+implementation plan.
 
 ## Topology
 
@@ -17,7 +25,7 @@ USB Gamepad ─► ESP32-S3 (hid)
                                   ESP32-WROVER (core)
                                   ├─ NTSC composite (DAC1 / GPIO25) ─► TV
                                   ├─ I2S (BCK/WS/DOUT = 32/33/27) ──► amp
-                                  └─ Nofrendo emulator
+                                  └─ Anemoia-ESP32 NES emulator
 ```
 
 Pin maps live in `core/main/include/narya_pin_assign.h` and
@@ -27,7 +35,7 @@ Pin maps live in `core/main/include/narya_pin_assign.h` and
 
 | Path | MCU | Role |
 |------|-----|------|
-| [core/](core/) | ESP32-WROVER | NTSC, I2S audio, ROM store, Nofrendo, UART RX |
+| [core/](core/) | ESP32-WROVER | NTSC, I2S audio, ROM store, Anemoia, UART RX |
 | [hid/](hid/) | ESP32-S3 | USB-Host, HID decoder, UART TX, core reset GPIO |
 | [doc/](doc/) | — | Design notes |
 
@@ -39,8 +47,9 @@ Prerequisite: Docker. The default toolchain image is
 `ghcr.io/family-mruby/fmruby-esp32-build:latest`; override with
 `DOCKER_IMAGE` if needed.
 
-Place NES ROMs (any `*.nes`) under `core/data/nofrendo/`. They are
-gitignored and concatenated into a custom raw `roms` partition at
+Place NES ROMs (any `*.nes`) under `core/data/nofrendo/` (the
+directory name is preserved from the project's earlier life). They
+are gitignored and concatenated into a custom raw `roms` partition at
 build time.
 
 ```sh
@@ -69,26 +78,42 @@ serial console so a different layout can be added in
 
 ## Compatibility
 
-Compatibility tracks the underlying Nofrendo core, not this port:
+Anemoia-ESP32 implements mappers 0 / 1 / 2 / 3 / 4 / 69 covering ~79 %
+of the NES catalogue. Tested titles in this port:
 
-- mapper 0 (NROM), mapper 7 (AxROM): work
-- mapper 4 (MMC3) with **CHR-RAM**: works
-- mapper 4 (MMC3) with **CHR-ROM**: do not render correctly (most
-  freeze or stay blank). The mapper IRQ has been patched toward the
-  standard FCEUX auto-reload pattern, but a deeper cycle-accuracy
-  issue remains. See [`core/main/emu/nofrendo/map004.c`](core/main/emu/nofrendo/map004.c).
-- mapper 1 (MMC1): partial; some titles never finish boot.
+- NROM (mapper 0)
+- MMC1 (mapper 1) with CHR-ROM
+- MMC3 (mapper 4) with CHR-ROM
+- MMC3 (mapper 4) with CHR-RAM + 512 KB PRG (NES-TGROM) — required a
+  Narya-side fix to `mapper004_ppuWrite` for CHR-RAM stores
+- MMC1 (mapper 1) with CHR-RAM saves: boot and create-save flow works,
+  but save persistence is currently in-memory only (see "known limits")
+- Mapper 7 (AxROM) and beyond: not implemented in Anemoia
 
 The task watchdog is set to log-only, so a stuck game keeps the
 firmware alive. Press **Share + R2** on the pad to soft-reset the core
 back to the ROM picker.
 
+### Known limits
+
+- Battery PRG-RAM (used by RPGs for save data) lives in DRAM only. It
+  survives within one play session but is lost on reset / ROM swap /
+  power-off. A flash-backed save slot scheme is on the to-do list.
+
 ## Architecture highlights
 
 - **NTSC out**: I2S0 + APLL + DMA + DAC1, ported from esp_8_bit with
   all Arduino API removed.
-- **Audio**: 15 720 Hz / 16-bit stereo I2S; the blocking write paces
-  emulator frames.
+- **Audio**: 44.1 kHz / 16-bit mono I2S; Anemoia's APU drives a
+  separate apu_task pinned to core 0.
+- **NES core**: Anemoia-ESP32 vendored under
+  [`core/main/emu/anemoia/`](core/main/emu/anemoia/) plus a thin
+  `EmuAnemoia` glue (`core/main/emu/emu_anemoia.cpp`) that exposes
+  Anemoia's scanline + audio output as the existing `Emu` interface.
+- **Bank cache bypass**: the upstream Anemoia software bank cache
+  (~170 KB DRAM) is replaced with direct `flash-XIP` access through
+  `Cartridge::prgRomPtr / chrRomPtr` so we keep ~180 KB free heap for
+  the rest of the firmware.
 - **ROM store**: a custom raw partition (subtype 0x40) holds a
   4 KB directory plus 4 KB-aligned ROM blobs;
   `tools/build_roms.py` generates the image at build time and
@@ -96,7 +121,7 @@ back to the ROM picker.
   runtime (no PSRAM round-trip).
 - **ROM picker**: pre-emulator menu rendered into a 256x240 NES
   framebuffer with the bundled 5x7 font; the buffer is freed before
-  `Emu::insert` so Nofrendo's primary buffer can land in DRAM.
+  `Emu::insert` so PRG bank allocations land in DRAM.
 - **HID UART link**: 5-byte minimum frame (SOF / type / seq+len /
   payload / CRC8). Stateless, no ACK.
 - **Coordinated reset**: the hid firmware drives an open-drain line
@@ -110,3 +135,5 @@ Per-component attribution and compatibility reasoning are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 NES ROM copyrights are out of scope of this repository; bring your own.
+</content>
+</invoke>

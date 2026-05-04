@@ -1,6 +1,6 @@
 # Third-party notices
 
-`esp_8_bit_for_narya` is licensed as a whole under **GNU General Public
+`nes_for_narya` is licensed as a whole under **GNU General Public
 License, version 3 or later** (see `LICENSE`). The repository bundles
 or fetches code from the upstream projects listed below; each item is
 either originally GPL-compatible or has been relicensed via an
@@ -13,7 +13,19 @@ addition to falling under this project's GPLv3 umbrella.
 
 ## Vendored sources
 
-### Nofrendo NES emulator core
+### Anemoia-ESP32 NES emulator core
+
+- **Files**: `core/main/emu/anemoia/**`
+- **Origin**: [Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32),
+  by Shim06 and contributors.
+- **Original license**: GNU General Public License, version 3 or later
+  (see file headers).
+- **Modifications by this project**: see git history. Notable patches
+  include the bank-cache bypass (`mapper.cpp`), CHR-RAM PPU write
+  support in `mapper004_ppuWrite`, and immediate bank pointer re-apply
+  on `$8000` mode changes.
+
+### Nofrendo NES emulator core (no longer built, kept for reference)
 
 - **Files**: `core/main/emu/nofrendo/**`
 - **Origin**: Nofrendo, by Matthew Conte and contributors (1998-2000),
@@ -25,8 +37,9 @@ addition to falling under this project's GPLv3 umbrella.
   License, version 2, or, at your option, any later version". This
   project exercises that option and re-licenses the bundled Nofrendo
   files under GPL version 3 or later.
-- **Modifications by this project**: see git history; in particular,
-  `map004.c` has been patched for MMC3 IRQ auto-reload behaviour.
+- **Status**: excluded from the build (the active NES core is
+  Anemoia-ESP32). Kept in-tree as a reference implementation; may be
+  removed in a future cleanup.
 
 ### esp_8_bit (video pipeline, emulator glue)
 
