@@ -232,7 +232,16 @@ void video_init(int samples_per_cc, int machine, const uint32_t* palette, int nt
         _line_width   = NTSC_COLOR_CLOCKS_PER_SCANLINE * samples_per_cc;
         _line_count   = NTSC_LINES;
         _hsync_long   = usec(63.555 - 4.7);
-        _active_start = usec(samples_per_cc == 4 ? 10 : 10.5);
+        // Shift the active area ~1 us earlier in the scanline so the
+        // 192 cc (~53.7 us) NES image stops fitting flush against the
+        // line end. Upstream esp_8_bit's usec(10) had no front porch on
+        // the right, which on TVs with even slight overscan clipped
+        // several pixels off Wizardry-style edge UIs. usec(9) shifts the
+        // image left by ~3 NES pixels, leaving ~0.86 us front porch and
+        // splitting overscan loss roughly evenly between the two edges.
+        // 9 us is still well past the colorburst (~5..8 us) so the
+        // chroma latch has ample settle time before the active region.
+        _active_start = usec(samples_per_cc == 4 ? 9 : 10.5);
         _hsync        = usec(4.7);
         _pal_         = 0;
     } else {
