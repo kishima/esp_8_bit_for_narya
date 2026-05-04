@@ -27,6 +27,10 @@ extern "C" {
 #define LOG(msg)             ESP_LOGI(NARYA_ANEMOIA_TAG, "%s", (msg))
 #define LOGF(fmt, ...)       ESP_LOGI(NARYA_ANEMOIA_TAG, fmt, ##__VA_ARGS__)
 
+// Match upstream Anemoia: every shipped board config defines FRAMESKIP, so
+// the published 60 fps + mapper compatibility is achieved with this on.
+#define FRAMESKIP
+
 static inline void log_pin_config(void) { /* no-op for Narya */ }
 
 // Hook called by Bus::renderImage with `count` scanlines worth of RGB565

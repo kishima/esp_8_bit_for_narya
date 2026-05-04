@@ -46,11 +46,11 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
 )
 
 # Anemoia's CPU/PPU/APU interpreters expect aggressive optimisation
-# (-Ofast + jump-table dispatch + loop unrolling) to hit real-time speed
-# on the ESP32; the upstream ino has a #error guard for this. Apply the
-# subset of flags that work with ESP-IDF's compile pipeline. Skip -flto
-# (link-time, needs broader sdkconfig changes) and -mlongcalls (already
-# part of the ESP-IDF default toolchain).
+# (-Ofast + jump-table dispatch + loop unrolling + LTO) to hit real-time
+# speed on the ESP32; the upstream ino has a #error guard for this.
+# -flto here cross-inlines Cpu6502::read into Bus::cpuRead and similar
+# hot indirections that span translation units. -mlongcalls is already
+# part of ESP-IDF's default toolchain so we do not repeat it.
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Ofast
     -funroll-loops
@@ -59,5 +59,7 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -fno-tree-vectorize
     -frename-registers
     -fno-plt
+    -flto
 )
+target_link_options(${COMPONENT_LIB} INTERFACE -flto)
 target_compile_definitions(${COMPONENT_LIB} PRIVATE OPTIMIZATION_FLAGS=1)
