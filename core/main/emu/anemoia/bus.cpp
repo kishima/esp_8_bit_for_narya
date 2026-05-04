@@ -1,5 +1,22 @@
 #include "bus.h"
 
+// Diagnostic counters / state samples. Main's emu_task drains and logs
+// these once per second to see what the emulator is actually doing.
+extern "C" volatile uint32_t g_strobe_writes      = 0;  // CPU writes to $4016
+extern "C" volatile uint32_t g_controller_reads   = 0;  // CPU reads of $4016
+extern "C" volatile uint32_t g_render_clocks      = 0;  // bus.clock with frame_latch=false
+extern "C" volatile uint32_t g_skip_clocks        = 0;  // bus.clock with frame_latch=true
+extern "C" volatile uint8_t  g_last_mask_reg      = 0;  // ppu mask sampled in last clock
+extern "C" volatile uint8_t  g_last_ctrl_reg      = 0;  // ppu control sampled in last clock
+// OR-masks aggregated over the 1 Hz window so brief button presses do not
+// fall between log lines. controller_or = whatever hid_rx_task pushed onto
+// bus->controller, strobe_or = the value the game actually latched at $4016
+// strobe writes. If controller_or has bits the game never sees, the strobe
+// is racing the input path; if both are zero while pressing, hid->bus is
+// broken; if both have bits, the input is reaching the game.
+extern "C" volatile uint8_t  g_controller_or      = 0;
+extern "C" volatile uint8_t  g_strobe_latched_or  = 0;
+
 Bus::Bus()
 {
     memset(RAM, 0, sizeof(RAM));
@@ -24,8 +41,12 @@ IRAM_ATTR void Bus::cpuWrite(uint16_t addr, uint8_t data)
     else if (addr == 0x4014) { cpu.OAM_DMA(data); }
     else if (addr == 0x4016)
     {
+        g_strobe_writes++;
         controller_strobe = data & 1;
-        if (controller_strobe) { controller_state = controller; }
+        if (controller_strobe) {
+            controller_state = controller;
+            g_strobe_latched_or = (uint8_t)(g_strobe_latched_or | controller);
+        }
     }
 }
 
@@ -38,6 +59,7 @@ IRAM_ATTR uint8_t Bus::cpuRead(uint16_t addr)
     else if ((addr & 0xE000) == 0x2000) { data = ppu.cpuRead(addr & 0x0007); }
     else if (addr == 0x4016)
     {
+        g_controller_reads++;
         uint8_t value = controller_state & 1;
         if (!controller_strobe) controller_state >>= 1;
         data = value | 0x40;
@@ -58,6 +80,15 @@ void Bus::reset()
 
 IRAM_ATTR void Bus::clock()
 {
+    // Sample PPU control state for this frame so the diagnostic log can
+    // see if the game ever enables background/sprite rendering. Also
+    // capture bus->controller OR-mask so a held button shows up reliably
+    // in the 1 Hz log even if it does not coincide with a strobe write.
+    g_last_mask_reg = ppu.getMaskReg();
+    g_last_ctrl_reg = ppu.getCtrlReg();
+    g_controller_or = (uint8_t)(g_controller_or | controller);
+    if (frame_latch) g_skip_clocks++; else g_render_clocks++;
+
     // 1 frame == 341 dots * 261 scanlines
     // Visible scanlines 0-239
 

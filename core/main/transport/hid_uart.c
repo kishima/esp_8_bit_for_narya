@@ -41,6 +41,12 @@ typedef enum {
 static QueueHandle_t s_q;
 static bool          s_inited;
 
+// Diagnostic counters fed by rx_task and read by hid_uart_rx_stats.
+// uint32_t writes/reads are atomic on Xtensa so no lock is needed.
+static volatile uint32_t s_total_bytes;
+static volatile uint32_t s_total_msgs;
+static volatile uint32_t s_total_drops;
+
 static void rx_task(void *arg)
 {
     (void)arg;
@@ -54,6 +60,7 @@ static void rx_task(void *arg)
     while (true) {
         int got = uart_read_bytes(NARYA_CORE_HID_UART_PORT, buf, sizeof(buf), READ_TIMEOUT_TICKS);
         if (got <= 0) continue;
+        s_total_bytes += (uint32_t)got;
 
         for (int i = 0; i < got; ++i) {
             uint8_t b = buf[i];
@@ -90,10 +97,12 @@ static void rx_task(void *arg)
                 memcpy(&crc_buf[2], msg.payload, msg.len);
                 uint8_t want = narya_hid_crc8(crc_buf, (size_t)(2 + msg.len));
                 if (want == b) {
-                    if (xQueueSend(s_q, &msg, 0) != pdTRUE) total_drop++;
+                    if (xQueueSend(s_q, &msg, 0) != pdTRUE) { total_drop++; s_total_drops++; }
                     total_rx++;
+                    s_total_msgs++;
                 } else {
                     total_drop++;
+                    s_total_drops++;
                 }
                 st = STATE_SOF;
                 break;
@@ -146,4 +155,11 @@ BaseType_t hid_uart_rx_recv(narya_hid_msg_t *out, TickType_t timeout)
 {
     if (!s_inited || !out) return pdFALSE;
     return xQueueReceive(s_q, out, timeout);
+}
+
+void hid_uart_rx_stats(uint32_t *bytes, uint32_t *msgs, uint32_t *drops)
+{
+    if (bytes) *bytes = s_total_bytes;
+    if (msgs)  *msgs  = s_total_msgs;
+    if (drops) *drops = s_total_drops;
 }

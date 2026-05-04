@@ -61,6 +61,12 @@ public:
     };
     void setPalette(uint8_t palette);
 
+    // Narya diagnostic accessors so emu_task can sample PPU enable bits
+    // and the reset state of the controller regs once per second without
+    // friending the whole class.
+    uint8_t getMaskReg() const { return mask.reg; }
+    uint8_t getCtrlReg() const { return control.reg; }
+
 private:
     Cartridge* cart = nullptr;
     Bus* bus = nullptr;

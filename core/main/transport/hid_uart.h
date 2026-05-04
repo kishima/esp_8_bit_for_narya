@@ -27,6 +27,11 @@ esp_err_t hid_uart_rx_init(void);
 // before the timeout, pdFALSE otherwise. `out` is filled on success.
 BaseType_t hid_uart_rx_recv(narya_hid_msg_t *out, TickType_t timeout);
 
+// Diagnostic snapshot of the framer task: total UART bytes seen, total
+// well-formed messages posted, and total drops (CRC fail / queue full /
+// length overflow). Useful for confirming the RX path is still alive.
+void hid_uart_rx_stats(uint32_t *bytes, uint32_t *msgs, uint32_t *drops);
+
 #ifdef __cplusplus
 }
 #endif

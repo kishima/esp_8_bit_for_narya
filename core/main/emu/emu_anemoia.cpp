@@ -54,6 +54,11 @@ static uint8_t   s_fb[240][256];
 static uint8_t  *s_fb_lines[240];
 static bool      s_fb_lines_inited = false;
 
+// Diagnostic counters — main's emu_task reads-and-resets these in its
+// 1 Hz log line so we can see what FRAMESKIP is actually doing per ROM.
+extern "C" volatile uint32_t g_publish_calls = 0;        // every renderImage chunk
+extern "C" volatile uint32_t g_render_frame_starts = 0;  // chunks that start a frame
+
 static void ensure_fb_lines(void)
 {
     if (s_fb_lines_inited) return;
@@ -68,6 +73,9 @@ extern "C" IRAM_ATTR void narya_anemoia_publish_scanlines(const uint16_t *src,
     if (!src || count <= 0) return;
     if (first_scanline < 0 || first_scanline >= 240) return;
     if (first_scanline + count > 240) count = 240 - first_scanline;
+
+    g_publish_calls++;
+    if (first_scanline == 0) g_render_frame_starts++;
 
     for (int row = 0; row < count; ++row) {
         const uint16_t *srow = src + (size_t)row * 256;
@@ -153,15 +161,18 @@ public:
         // Anemoia ships its APU as a busy-loop background task that runs in
         // parallel with the CPU/PPU loop. Without it the audio buffer is
         // never filled, our publish_audio hook never fires, and emu_task
-        // races with no back-pressure (-> IDLE0 starvation watchdog).
-        // Pin to core 0 so the APU shares the same cache locality with
-        // the rest of the emulator. Low priority lets emu_task on the
-        // same core preempt at frame boundaries.
+        // races with no back-pressure. NOTE: on MMC1/3 the heap is almost
+        // empty by this point (the bank cache eats ~170 KB), so this spawn
+        // can silently fail and the game runs without audio. The follow-up
+        // bank-cache bypass refactor frees the heap and makes this reliable.
         if (!apu_task_handle) {
-            xTaskCreatePinnedToCore(EmuAnemoia::apu_task_entry,
-                                    "apu_task", 4 * 1024,
-                                    &bus->cpu.apu, 1, &apu_task_handle, 0);
+            BaseType_t r = xTaskCreatePinnedToCore(EmuAnemoia::apu_task_entry,
+                                                   "apu_task", 4 * 1024,
+                                                   &bus->cpu.apu, 1,
+                                                   &apu_task_handle, 0);
+            ESP_LOGI(TAG, "apu_task spawn=%d (pdPASS=%d)", (int)r, (int)pdPASS);
         }
+
         ESP_LOGI(TAG, "rom inserted: %s", path.c_str());
         return 0;
     }

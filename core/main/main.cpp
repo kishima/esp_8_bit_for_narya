@@ -49,6 +49,24 @@
 // events from the UART HID link into the emulator's event_btn() handler.
 extern "C" void nofrendo_event_btn(void *emu, int btn_idx, int pressed);
 
+// Diagnostic counters fed by Anemoia bus.cpp / emu_anemoia.cpp. Drained
+// once per second from emu_task so we can correlate FRAMESKIP behaviour
+// with what the game is actually doing.
+extern "C" volatile uint32_t g_publish_calls;
+extern "C" volatile uint32_t g_render_frame_starts;
+extern "C" volatile uint32_t g_strobe_writes;
+extern "C" volatile uint32_t g_controller_reads;
+extern "C" volatile uint32_t g_render_clocks;
+extern "C" volatile uint32_t g_skip_clocks;
+extern "C" volatile uint8_t  g_last_mask_reg;
+extern "C" volatile uint8_t  g_last_ctrl_reg;
+extern "C" volatile uint8_t  g_controller_or;
+extern "C" volatile uint8_t  g_strobe_latched_or;
+
+// hid_rx_task increments this on every loop iteration so the diagnostic
+// log can confirm the task is actually scheduled.
+static volatile uint32_t s_hid_rx_iterations;
+
 static const char *TAG = "narya_core";
 
 #define NARYA_AUDIO_BUF_SAMPLES    NARYA_AUDIO_MAX_MONO_SAMPLES
@@ -82,9 +100,29 @@ static void emu_task(void *arg)
         // 1 Hz: average emu->update() time so we can see if the core is
         // running at real-time (~16 ms) or far slower.
         if (t1 - diag_window_start >= 1000000) {
+            uint32_t pub_calls   = g_publish_calls;       g_publish_calls       = 0;
+            uint32_t render_st   = g_render_frame_starts; g_render_frame_starts = 0;
+            uint32_t strobes     = g_strobe_writes;       g_strobe_writes       = 0;
+            uint32_t ctrl_reads  = g_controller_reads;    g_controller_reads    = 0;
+            uint32_t rend_clocks = g_render_clocks;       g_render_clocks       = 0;
+            uint32_t skip_clocks = g_skip_clocks;         g_skip_clocks         = 0;
+            uint8_t  ctrl_or     = g_controller_or;       g_controller_or       = 0;
+            uint8_t  strobe_or   = g_strobe_latched_or;   g_strobe_latched_or   = 0;
             ESP_LOGI(TAG, "[emu] frames=%d avg_update=%lldus",
                      diag_frames,
                      diag_frames ? diag_clock_us_sum / diag_frames : 0);
+            ESP_LOGI(TAG, "[emu-diag] render_clocks=%u skip_clocks=%u publishes=%u render_frames=%u",
+                     (unsigned)rend_clocks, (unsigned)skip_clocks,
+                     (unsigned)pub_calls,   (unsigned)render_st);
+            ESP_LOGI(TAG, "[emu-diag] mask=0x%02X ctrl=0x%02X strobes=%u reads=%u ctrl_or=0x%02X strobe_or=0x%02X",
+                     (unsigned)g_last_mask_reg, (unsigned)g_last_ctrl_reg,
+                     (unsigned)strobes, (unsigned)ctrl_reads,
+                     (unsigned)ctrl_or, (unsigned)strobe_or);
+            uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
+            hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
+            ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",
+                     (unsigned)hid_bytes, (unsigned)hid_msgs, (unsigned)hid_drops,
+                     (unsigned)s_hid_rx_iterations);
             diag_frames = 0;
             diag_clock_us_sum = 0;
             diag_window_start = t1;
@@ -134,7 +172,9 @@ static void hid_rx_task(void *arg)
 {
     Emu *emu = (Emu*)arg;
     narya_hid_msg_t msg;
+    ESP_LOGI(TAG, "hid_rx_task entered on core %d", xPortGetCoreID());
     while (true) {
+        s_hid_rx_iterations++;
         if (hid_uart_rx_recv(&msg, portMAX_DELAY) != pdTRUE) continue;
         switch (msg.type) {
         case NARYA_EVT_BTN_DOWN:
@@ -207,17 +247,24 @@ extern "C" void app_main(void)
     // the PSRAM-resident ROM and visibly breaks MMC3 game timing.
     rom_menu_release();
 
+    // Spawn the worker tasks BEFORE inserting the cartridge. MMC1/MMC3
+    // mappers allocate ~170 KB of bank cache in insert(), and on a small
+    // ROM that is fine, but a heavier mapper leaves the heap fragmented
+    // enough that a subsequent xTaskCreatePinnedToCore for the 3 KB hid
+    // stack fails (errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY -> hid_rx_task
+    // never runs and inputs go nowhere). With the spawns moved up, every
+    // worker stack is locked in while the heap is still pristine.
+    // emu_task safely runs against a not-yet-inserted cart: emu->update()
+    // returns -1 immediately when cart is null.
+    BaseType_t r_emu  = xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 1);
+    BaseType_t r_perf = xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
+    BaseType_t r_hid  = xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, g_emu, 5, nullptr, 1);
+    ESP_LOGI(TAG, "task spawn results: emu=%d perf=%d hid=%d (pdPASS=%d)",
+             (int)r_emu, (int)r_perf, (int)r_hid, (int)pdPASS);
+
     if (g_emu->insert(rom_name, 1, 0) != 0) {
         ESP_LOGE(TAG, "halt: insert %s failed", rom_name);
         return;
     }
     ESP_LOGI(TAG, "[emu] rom=%s loaded", rom_name);
-
-    // emu_task moves to core 1 so it does not contend with the Anemoia
-    // apu_task (pinned to core 0 with the I2S DMA peripheral and the
-    // video ISR). With both on core 0 the higher-priority emu_task
-    // starved apu_task and the audio I2S queue underran ('ぶつぶつ').
-    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 1);
-    xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
-    xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, g_emu, 5, nullptr, 1);
 }
