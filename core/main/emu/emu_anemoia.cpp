@@ -36,7 +36,18 @@ static const char *TAG = "emu_anemoia";
 // 4-phase NTSC YUV palette identical to the one used by emu_nofrendo so
 // the existing video_out.cpp blit() works unchanged. Each entry encodes
 // four 16-bit DAC samples per NES color clock.
-extern "C" const uint32_t nes_4_phase[64] = {
+//
+// DRAM_ATTR is critical: blit() runs from the I2S video ISR at IRAM, and
+// the ISR can fire while the flash data cache is briefly disabled by
+// esp_partition_mmap (rom_store_mmap during cartridge insert). With the
+// table in flash rodata, blit() faulted with "Cache disabled but cached
+// memory region accessed" the moment a ROM was being mapped. Forcing the
+// palette into DRAM removes the flash dependency from the ISR path.
+// Non-const so DRAM_ATTR places it in the writable .dram1 section that
+// audio_buffer also lives in; const + DRAM_ATTR triggers an LTO section
+// type conflict against the DMA_ATTR audio_buffer in apu2A03.cpp.
+// Practically read-only -- the table is never written after boot.
+extern "C" DRAM_ATTR uint32_t nes_4_phase[64] = {
     0x2C2C2C2C,0x241D1F26,0x221D2227,0x1F1D2426,0x1D1F2624,0x1D222722,0x1D24261F,0x1F26241D,
     0x2227221D,0x24261F1D,0x26241D1F,0x27221D22,0x261F1D24,0x14141414,0x14141414,0x14141414,
     0x38383838,0x2C25272E,0x2A252A2F,0x27252C2E,0x25272E2C,0x252A2F2A,0x252C2E27,0x272E2C25,

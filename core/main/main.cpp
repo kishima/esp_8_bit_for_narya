@@ -58,8 +58,8 @@ extern "C" volatile uint32_t g_strobe_writes;
 extern "C" volatile uint32_t g_controller_reads;
 extern "C" volatile uint32_t g_render_clocks;
 extern "C" volatile uint32_t g_skip_clocks;
-extern "C" volatile uint8_t  g_last_mask_reg;
-extern "C" volatile uint8_t  g_last_ctrl_reg;
+extern "C" volatile uint8_t  g_mask_or;
+extern "C" volatile uint8_t  g_ctrl_or;
 extern "C" volatile uint8_t  g_controller_or;
 extern "C" volatile uint8_t  g_strobe_latched_or;
 
@@ -106,18 +106,20 @@ static void emu_task(void *arg)
             uint32_t ctrl_reads  = g_controller_reads;    g_controller_reads    = 0;
             uint32_t rend_clocks = g_render_clocks;       g_render_clocks       = 0;
             uint32_t skip_clocks = g_skip_clocks;         g_skip_clocks         = 0;
-            uint8_t  ctrl_or     = g_controller_or;       g_controller_or       = 0;
+            uint8_t  pad_or      = g_controller_or;       g_controller_or       = 0;
             uint8_t  strobe_or   = g_strobe_latched_or;   g_strobe_latched_or   = 0;
+            uint8_t  mask_or     = g_mask_or;             g_mask_or             = 0;
+            uint8_t  ctrl_or     = g_ctrl_or;             g_ctrl_or             = 0;
             ESP_LOGI(TAG, "[emu] frames=%d avg_update=%lldus",
                      diag_frames,
                      diag_frames ? diag_clock_us_sum / diag_frames : 0);
             ESP_LOGI(TAG, "[emu-diag] render_clocks=%u skip_clocks=%u publishes=%u render_frames=%u",
                      (unsigned)rend_clocks, (unsigned)skip_clocks,
                      (unsigned)pub_calls,   (unsigned)render_st);
-            ESP_LOGI(TAG, "[emu-diag] mask=0x%02X ctrl=0x%02X strobes=%u reads=%u ctrl_or=0x%02X strobe_or=0x%02X",
-                     (unsigned)g_last_mask_reg, (unsigned)g_last_ctrl_reg,
+            ESP_LOGI(TAG, "[emu-diag] mask_or=0x%02X ctrl_or=0x%02X strobes=%u reads=%u pad_or=0x%02X strobe_or=0x%02X",
+                     (unsigned)mask_or, (unsigned)ctrl_or,
                      (unsigned)strobes, (unsigned)ctrl_reads,
-                     (unsigned)ctrl_or, (unsigned)strobe_or);
+                     (unsigned)pad_or, (unsigned)strobe_or);
             uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
             hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
             ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",

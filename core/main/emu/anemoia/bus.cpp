@@ -6,14 +6,17 @@ extern "C" volatile uint32_t g_strobe_writes      = 0;  // CPU writes to $4016
 extern "C" volatile uint32_t g_controller_reads   = 0;  // CPU reads of $4016
 extern "C" volatile uint32_t g_render_clocks      = 0;  // bus.clock with frame_latch=false
 extern "C" volatile uint32_t g_skip_clocks        = 0;  // bus.clock with frame_latch=true
-extern "C" volatile uint8_t  g_last_mask_reg      = 0;  // ppu mask sampled in last clock
-extern "C" volatile uint8_t  g_last_ctrl_reg      = 0;  // ppu control sampled in last clock
-// OR-masks aggregated over the 1 Hz window so brief button presses do not
-// fall between log lines. controller_or = whatever hid_rx_task pushed onto
-// bus->controller, strobe_or = the value the game actually latched at $4016
-// strobe writes. If controller_or has bits the game never sees, the strobe
-// is racing the input path; if both are zero while pressing, hid->bus is
-// broken; if both have bits, the input is reaching the game.
+// OR-masks aggregated over the 1 Hz window so brief register pokes do not
+// fall between log lines. mask_or / ctrl_or capture every value the CPU
+// wrote to PPUMASK ($2001) / PPUCTRL ($2000) within the window, so a game
+// that toggles render_sprite mid-frame still shows up. controller_or =
+// what hid_rx_task pushed onto bus->controller, strobe_or = what the
+// game latched at $4016 strobe writes. If controller_or has bits the
+// game never sees, the strobe is racing the input path; if both are 0
+// while pressing, hid->bus is broken; if both have bits, the input is
+// reaching the game.
+extern "C" volatile uint8_t  g_mask_or            = 0;
+extern "C" volatile uint8_t  g_ctrl_or            = 0;
 extern "C" volatile uint8_t  g_controller_or      = 0;
 extern "C" volatile uint8_t  g_strobe_latched_or  = 0;
 
@@ -33,7 +36,15 @@ IRAM_ATTR void Bus::cpuWrite(uint16_t addr, uint8_t data)
 {
     if (cart->cpuWrite(addr, data)) {}
     else if ((addr & 0xE000) == 0x0000) { RAM[addr & 0x07FF] = data; }
-    else if ((addr & 0xE000) == 0x2000) { ppu.cpuWrite(addr & 0x0007, data); }
+    else if ((addr & 0xE000) == 0x2000) {
+        // Snoop PPUCTRL / PPUMASK writes for the diagnostic OR-masks
+        // before forwarding so we capture every poke the game made within
+        // the 1 Hz window.
+        uint8_t reg = addr & 0x0007;
+        if (reg == 0x00) g_ctrl_or = (uint8_t)(g_ctrl_or | data);
+        if (reg == 0x01) g_mask_or = (uint8_t)(g_mask_or | data);
+        ppu.cpuWrite(reg, data);
+    }
     else if ((addr & 0xF000) == 0x4000 && (addr <= 0x4013 || addr == 0x4015 || addr == 0x4017))
     {
         cpu.apuWrite(addr, data);
@@ -80,12 +91,10 @@ void Bus::reset()
 
 IRAM_ATTR void Bus::clock()
 {
-    // Sample PPU control state for this frame so the diagnostic log can
-    // see if the game ever enables background/sprite rendering. Also
-    // capture bus->controller OR-mask so a held button shows up reliably
+    // Capture bus->controller OR-mask so a held button shows up reliably
     // in the 1 Hz log even if it does not coincide with a strobe write.
-    g_last_mask_reg = ppu.getMaskReg();
-    g_last_ctrl_reg = ppu.getCtrlReg();
+    // PPUMASK / PPUCTRL OR-masks are updated inline in cpuWrite, no need
+    // to sample them here.
     g_controller_or = (uint8_t)(g_controller_or | controller);
     if (frame_latch) g_skip_clocks++; else g_render_clocks++;
 
