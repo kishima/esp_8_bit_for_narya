@@ -38,12 +38,17 @@
 
 // NES palette indices. The blit() in video_out.cpp masks src bytes with 0x3F,
 // so the visible color comes from nes_4_phase[idx].
-//   0x0F = absolute black (super-black)
-//   0x30 = light gray / "white"
-#define BG_COLOR            0x0F
-#define FG_COLOR            0x30
-#define HIGHLIGHT_BG        0x30
-#define HIGHLIGHT_FG        0x0F
+//
+// 0x0F (super-black) on 0x30 (white) is pure luminance only - it carries
+// no chroma - and produces severe NTSC dot-crawl/cross-color on a real
+// TV: the high-contrast B/W edges are misread as colour by the comb
+// filter and rainbow fringes bleed into the row below. Dark blue 0x01
+// for the background introduces enough chroma that the comb filter
+// latches onto the actual hue and stops mis-decoding edge artifacts -
+// the same trick the FF/DQ title screens use.
+#define BG_COLOR            0x01   // dark blue
+#define FG_COLOR            0x30   // white
+#define CURSOR_COLOR        0x28   // yellow
 
 static uint8_t  *s_fb;            // 256*240 indexed framebuffer (PSRAM)
 static uint8_t **s_lines;         // 240 row pointers (DRAM, ISR-accessed)
@@ -130,11 +135,13 @@ static void redraw(const std::vector<std::string> &roms, int cursor)
     for (int i = 0; i < list_max && first + i < (int)roms.size(); ++i) {
         int idx = first + i;
         bool sel = (idx == cursor);
-        if (sel) draw_row_filled(list_top + i, HIGHLIGHT_BG);
+        // Marker glyph at column 1 instead of inverting the whole row.
+        // Inversion creates a wide B/W block that produces severe NTSC
+        // cross-color artifacts on the selected line and the line below.
+        if (sel) draw_char(CELL_W, (list_top + i) * CELL_H, '>',
+                           CURSOR_COLOR, BG_COLOR);
         const std::string &name = roms[idx];
-        draw_str(2, list_top + i, name.c_str(),
-                 sel ? HIGHLIGHT_FG : FG_COLOR,
-                 sel ? HIGHLIGHT_BG : BG_COLOR);
+        draw_str(2, list_top + i, name.c_str(), FG_COLOR, BG_COLOR);
     }
 
     draw_str(2, help_y1, "up/down: move",  FG_COLOR, BG_COLOR);
