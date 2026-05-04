@@ -170,6 +170,23 @@ IRAM_ATTR bool mapper004_ppuRead(Mapper* mapper, uint16_t addr, uint8_t& data)
 
 IRAM_ATTR bool mapper004_ppuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
 {
+    if (addr > 0x1FFF) return false;
+
+    Mapper004_state* state = (Mapper004_state*)mapper->state;
+    // CHR-ROM cartridges leave PPU writes to $0000-$1FFF unmapped (the
+    // hardware really is read-only). CHR-RAM cartridges (e.g. NES-TGROM
+    // Final Fantasy III JP) need writes to land in their 8 KB scratch
+    // RAM so the game can stage tile patterns. The currently mapped 1 KB
+    // bank pointer for the addressed slot already resolves into the
+    // cart's chr_ram buffer (Cartridge::chrRomPtr returns it for
+    // number_CHR_banks == 0), so writing through ptr_CHR_bank_1K mirrors
+    // the read path exactly.
+    if (state->number_CHR_banks == 0)
+    {
+        uint8_t bank = (addr >> 10) & 0x07;
+        state->ptr_CHR_bank_1K[bank][addr & 0x03FF] = data;
+        return true;
+    }
     return false;
 }
 
