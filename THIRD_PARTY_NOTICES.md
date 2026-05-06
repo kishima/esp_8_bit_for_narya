@@ -107,7 +107,7 @@ source files were copied from them. They are mentioned for credit only.
 
 ## NES ROM files
 
-The repository's `core/data/nofrendo/` directory holds developer-side
+The repository's `core/data/roms/` directory holds developer-side
 NES ROM files at build time but they are excluded from version control
 (see the `*.nes` entry in `.gitignore`). Distribute only ROMs you have
 rights to.

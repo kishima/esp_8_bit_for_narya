@@ -47,9 +47,8 @@ Prerequisite: Docker. The default toolchain image is
 `ghcr.io/family-mruby/fmruby-esp32-build:latest`; override with
 `DOCKER_IMAGE` if needed.
 
-Place NES ROMs (any `*.nes`) under `core/data/nofrendo/` (the
-directory name is preserved from the project's earlier life). They
-are gitignored and concatenated into a custom raw `roms` partition at
+Place NES ROMs (any `*.nes`) under `core/data/roms/`. They are
+gitignored and concatenated into a custom raw `roms` partition at
 build time.
 
 ```sh
